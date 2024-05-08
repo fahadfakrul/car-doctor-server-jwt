@@ -8,10 +8,16 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 //middleware
-app.use(cors({
-  origin: ['http://localhost:5173'],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: [
+      // "http://localhost:5173",
+      "https:cars-doctor-95208.web.app",
+      "https://cars-doctor-95208.firebaseapp.com",
+    ],
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 
@@ -26,37 +32,41 @@ const client = new MongoClient(uri, {
   },
 });
 
-
 //middlewares
 const logger = async (req, res, next) => {
-  console.log('called:', req.host, req.originalUrl )
+  console.log("called:", req.host, req.originalUrl, req.method, req.url);
   next();
-}
+};
 
 const verifyToken = async (req, res, next) => {
   const token = req.cookies?.token;
-  console.log('value of token in middleware:', token);
+  console.log("value of token in middleware:", token);
   if (!token) {
-   return res.status(401).send({ message: "unauthorized" });
+    return res.status(401).send({ message: "unauthorized" });
   }
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err , decoded) => {
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
     // error
-       if(err){
-        console.log(err);
-        return res.status(401).send({ message: 'unauthorized'});
-       }
+    if (err) {
+      console.log(err);
+      return res.status(401).send({ message: "unauthorized" });
+    }
     //valid then decoded
-    console.log('value in the token', decoded)
+    console.log("value in the token", decoded);
     req.user = decoded;
-    next()
-  })
-  
-}
+    next();
+  });
+};
+
+const cookieOption = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production" ? "true" : "false",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+};
 
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const serviceCollection = client.db("carDoctor").collection("services");
     const bookingCollection = client.db("carDoctor").collection("bookings");
@@ -65,18 +75,23 @@ async function run() {
     app.post("/jwt", logger, async (req, res) => {
       const user = req.body;
       console.log(user);
-      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "1h" })
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: "1h",
+      });
 
+      res.cookie("token", token, cookieOption).send({ success: true });
+    });
+
+    app.post("/logout", async (req, res) => {
+      const user = req.body;
+      console.log("logging out", user);
       res
-      .cookie('token' , token, {
-        httpOnly: true,
-        secure: false,
-      })
-      .send({success: true});
+        .clearCookie("token", { ...cookieOption, maxAge: 0 })
+        .send({ success: true });
     });
 
     //services related api
-    app.get("/services",logger, async (req, res) => {
+    app.get("/services", logger, async (req, res) => {
       const cursor = serviceCollection.find();
       const result = await cursor.toArray();
       res.send(result);
@@ -95,11 +110,11 @@ async function run() {
 
     // bookings
 
-    app.get("/bookings", logger,verifyToken, async (req, res) => {
+    app.get("/bookings", logger, verifyToken, async (req, res) => {
       console.log(req.query.email);
       // console.log('token received', req.cookies.token);
-      console.log('User in the valid token', req.user);
-      if(req.query.email !== req.user.email) {
+      console.log("User in the valid token", req.user);
+      if (req.query.email !== req.user.email) {
         return res.status(403).send({ message: "forbidden access" });
       }
       let query = {};
@@ -138,7 +153,7 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
